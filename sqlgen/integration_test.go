@@ -6,11 +6,12 @@ import (
 	"fmt"
 	"math/rand"
 	"testing"
+	"time"
 
 	"github.com/kylelemons/godebug/pretty"
 )
 
-const base = "root:@tcp(localhost:3307)/"
+const base = "root:dev@tcp(localhost:3307)/"
 
 type TestDatabase struct {
 	ControlDB *sql.DB
@@ -58,6 +59,23 @@ func (t *TestDatabase) Close() error {
 	_, second := t.ControlDB.Exec(fmt.Sprintf("DROP DATABASE %s", t.DBName))
 	third := t.ControlDB.Close()
 	return firstError(first, second, third)
+}
+
+func TestContextDeadlineEnforced(t *testing.T) {
+	testDb, err := NewTestDatabase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer testDb.Close()
+
+	schema := NewSchema()
+	db := NewDB(testDb.DB, schema)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	if _, err = db.QueryExecer(ctx).ExecContext(ctx, "DO SLEEP(1)"); err == nil || err != context.DeadlineExceeded {
+		t.Errorf("Expected context.DeadlineExceeded, got: %s", err)
+	}
 }
 
 func TestIntegrationBasic(t *testing.T) {
